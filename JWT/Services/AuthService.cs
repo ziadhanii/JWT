@@ -3,22 +3,24 @@
 public class AuthService : IAuthService
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly RoleManager<IdentityRole> _roleManager;
     private readonly IOptions<JWT.Helpers.JWT> _jwt;
 
-    public AuthService(UserManager<ApplicationUser> userManager, IOptions<JWT.Helpers.JWT> jwt)
+    public AuthService(UserManager<ApplicationUser> userManager, RoleManager<IdentityRole> roleManager, IOptions<JWT.Helpers.JWT> jwt)
     {
         _userManager = userManager;
+        _roleManager = roleManager;
         _jwt = jwt;
     }
-
 
     public async Task<AuthModel> RegisterAsync(RegisterModel model)
     {
         if (await _userManager.FindByEmailAsync(model.Email) is not null)
-            return new AuthModel { Message = "Email is already registerd" };
+            return new AuthModel { Message = "Email is already registered" };
 
         if (await _userManager.FindByNameAsync(model.Username) is not null)
-            return new AuthModel { Message = "Username is already registerd" };
+            return new AuthModel { Message = "Username is already registered" };
+
         var user = new ApplicationUser
         {
             UserName = model.Username,
@@ -26,6 +28,7 @@ public class AuthService : IAuthService
             LastName = model.LastName,
             Email = model.Email
         };
+
         var result = await _userManager.CreateAsync(user, model.Password);
         if (result.Succeeded == false)
         {
@@ -33,11 +36,10 @@ public class AuthService : IAuthService
             foreach (var error in result.Errors)
             {
                 errors += $"{error.Description},";
-
             }
             return new AuthModel { Message = errors };
-
         }
+
         await _userManager.AddToRoleAsync(user, "User");
         var jwtSecurityToken = await CreateJwtToken(user);
         return new AuthModel
@@ -51,9 +53,6 @@ public class AuthService : IAuthService
         };
     }
 
-
-
-
     public async Task<AuthModel> GetTokenAsync(TokenRequestModel model)
     {
         var authModel = new AuthModel();
@@ -61,17 +60,16 @@ public class AuthService : IAuthService
         var user = await _userManager.FindByEmailAsync(model.Email);
         if (user is null || await _userManager.CheckPasswordAsync(user, model.Password) == false)
         {
-            authModel.Message = "Email Or Password is incorrect";
+            authModel.Message = "Email or Password is incorrect";
             return authModel;
         }
 
         var jwtSecurityToken = await CreateJwtToken(user);
         var rolesList = await _userManager.GetRolesAsync(user);
 
-
         authModel.IsAuthenticated = true;
         authModel.Token = new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken);
-        authModel.Email =model.Email;
+        authModel.Email = model.Email;
         authModel.Username = user.UserName;
         authModel.ExpiresOn = jwtSecurityToken.ValidTo;
         authModel.Roles = rolesList.ToList();
@@ -79,10 +77,18 @@ public class AuthService : IAuthService
         return authModel;
     }
 
+    public async Task<string> AddRoleAsync(AddRoleModel model)
+    {
+        var user = await _userManager.FindByIdAsync(model.UserId);
+        if (user is null || await _roleManager.RoleExistsAsync(model.Role) == false)
+            return "Invalid User ID or Role";
 
+        if (await _userManager.IsInRoleAsync(user, model.Role))
+            return "User is already assigned to this role";
 
-
-
+        var result = await _userManager.AddToRoleAsync(user, model.Role);
+        return result.Succeeded ? string.Empty : "Something went wrong";
+    }
 
 
 
@@ -97,11 +103,11 @@ public class AuthService : IAuthService
 
         var claims = new[]
         {
-        new Claim(JwtRegisteredClaimNames.Sub, user.UserName),
-        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-        new Claim(JwtRegisteredClaimNames.Email, user.Email),
-        new Claim("uid", user.Id)
-    }
+            new Claim(JwtRegisteredClaimNames.Sub, user.UserName),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim(JwtRegisteredClaimNames.Email, user.Email),
+            new Claim("uid", user.Id)
+        }
         .Union(userClaims)
         .Union(roleClaims);
 
@@ -117,4 +123,5 @@ public class AuthService : IAuthService
 
         return jwtSecurityToken;
     }
+
 }

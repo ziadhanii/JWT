@@ -8,10 +8,13 @@ public class AuthController(IAuthService authService) : ControllerBase
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterModel model)
     {
-        if (ModelState.IsValid == false) return BadRequest(ModelState);
+        if (ModelState.IsValid == false)
+            return BadRequest(ModelState);
+
         var result = await authService.RegisterAsync(model);
 
-        if (result.IsAuthenticated == false) return BadRequest(result.Message);
+        if (result.IsAuthenticated == false)
+            return BadRequest(result.Message);
 
         return Ok(result);
 
@@ -31,6 +34,20 @@ public class AuthController(IAuthService authService) : ControllerBase
 
     }
 
+    [HttpPost("add-role")]
+    public async Task<IActionResult> AddRole([FromBody] AddRoleModel model)
+    {
+        if (ModelState.IsValid == false)
+            return BadRequest(ModelState);
+
+        var result = await authService.AddRoleAsync(model);
+
+        if (string.IsNullOrEmpty(result) == false )
+            return BadRequest(result);
+
+        return Ok(result);
+
+    }
 
 
 
