@@ -1,4 +1,5 @@
-﻿
+﻿using JWT.Models;
+
 namespace JWT.Services;
 
 public class AuthService : IAuthService
@@ -130,7 +131,7 @@ public class AuthService : IAuthService
             issuer: _jwt.Value.Issuer,
             audience: _jwt.Value.Audience,
             claims: claims,
-            expires: DateTime.Now.AddDays(_jwt.Value.DurationInDays),
+            expires: DateTime.Now.AddMinutes(_jwt.Value.DurationInMinutes),
             signingCredentials: signingCredentials);
 
         return jwtSecurityToken;
@@ -150,5 +151,62 @@ public class AuthService : IAuthService
             CreatedOn = DateTime.UtcNow
         };
 
+    }
+
+    public async Task<AuthModel> RefreshTokenAsync(string token)
+    {
+        var authModel = new AuthModel();
+
+        var user = await _userManager.Users.SingleOrDefaultAsync(u => u.RefreshTokens.Any(t => t.Token == token));
+        if (user == null)
+        {
+            authModel.IsAuthenticated = false;
+            authModel.Message = "Invalid token";
+            return authModel;
+        }
+
+        var refreshToken = user.RefreshTokens.Single(t => t.Token == token);
+        if (refreshToken.IsActive == false)
+        {
+            authModel.IsAuthenticated = false;
+            authModel.Message = "Inactive token";
+            return authModel;
+        }
+        refreshToken.RevokedOn = DateTime.UtcNow;
+        var newRefreshToken = GenerateRefreshToken();
+        user.RefreshTokens.Add(newRefreshToken);
+        await _userManager.UpdateAsync(user);
+
+        var jwtToken = await CreateJwtToken(user);
+        authModel.IsAuthenticated = true;
+        authModel.Token = new JwtSecurityTokenHandler().WriteToken(jwtToken);
+        authModel.Email = user.Email;
+        authModel.Username = user.UserName;
+
+        var roles = await _userManager.GetRolesAsync(user);
+        authModel.Roles = roles.ToList();
+
+        authModel.RefreshToken = newRefreshToken.Token;
+        authModel.RefreshTokenExpiration = newRefreshToken.ExpiresOn;
+
+
+
+        return authModel;
+    }
+
+    public async Task<bool> RevokeTokenAsync(string token)
+    {
+
+        var user = await _userManager.Users.SingleOrDefaultAsync(u => u.RefreshTokens.Any(t => t.Token == token));
+        if (user == null)
+            return false;
+        var refreshToken = user.RefreshTokens.Single(t => t.Token == token);
+
+        if (refreshToken.IsActive == false)
+            return false;
+
+        refreshToken.RevokedOn = DateTime.UtcNow;
+        await _userManager.UpdateAsync(user);
+        return true;
     }
 }
