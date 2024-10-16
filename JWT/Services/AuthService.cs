@@ -1,4 +1,5 @@
-﻿namespace JWT.Services;
+﻿
+namespace JWT.Services;
 
 public class AuthService : IAuthService
 {
@@ -37,7 +38,7 @@ public class AuthService : IAuthService
             {
                 errors += $"{error.Description},";
             }
-            return new AuthModel { Message = errors };
+            return new AuthModel { Message = errors.TrimEnd(',') };
         }
 
         await _userManager.AddToRoleAsync(user, "User");
@@ -45,7 +46,6 @@ public class AuthService : IAuthService
         return new AuthModel
         {
             Email = user.Email,
-            ExpiresOn = jwtSecurityToken.ValidTo,
             IsAuthenticated = true,
             Roles = new List<string> { "User" },
             Token = new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken),
@@ -71,8 +71,22 @@ public class AuthService : IAuthService
         authModel.Token = new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken);
         authModel.Email = model.Email;
         authModel.Username = user.UserName;
-        authModel.ExpiresOn = jwtSecurityToken.ValidTo;
         authModel.Roles = rolesList.ToList();
+        if (user.RefreshTokens.Any(t => t.IsActive))
+        {
+            var activeRefreshToken = user.RefreshTokens.FirstOrDefault(t => t.IsActive);
+            authModel.RefreshToken = activeRefreshToken.Token;
+            authModel.RefreshTokenExpiration = activeRefreshToken.ExpiresOn;
+        }
+        else
+        {
+            var refreshToken = GenerateRefreshToken();
+            authModel.RefreshToken = refreshToken.Token;
+            authModel.RefreshTokenExpiration = refreshToken.ExpiresOn;
+            user.RefreshTokens.Add(refreshToken);
+            await _userManager.UpdateAsync(user);
+        }
+
 
         return authModel;
     }
@@ -89,8 +103,6 @@ public class AuthService : IAuthService
         var result = await _userManager.AddToRoleAsync(user, model.Role);
         return result.Succeeded ? string.Empty : "Something went wrong";
     }
-
-
 
     private async Task<JwtSecurityToken> CreateJwtToken(ApplicationUser user)
     {
@@ -124,4 +136,19 @@ public class AuthService : IAuthService
         return jwtSecurityToken;
     }
 
+    private RefreshToken GenerateRefreshToken()
+    {
+        var randomNumber = new byte[32];
+
+        using var generator = new RNGCryptoServiceProvider();
+
+        generator.GetBytes(randomNumber);
+        return new RefreshToken
+        {
+            Token = Convert.ToBase64String(randomNumber),
+            ExpiresOn = DateTime.UtcNow.AddDays(10),
+            CreatedOn = DateTime.UtcNow
+        };
+
+    }
 }
